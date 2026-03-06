@@ -32,7 +32,8 @@ const BookSpot = () => {
     fetchData();
   }, []);
 
-  const filteredSpots = selectedZone ? spots.filter((s) => s.zone_id === selectedZone) : spots;
+  const filteredSpots = (selectedZone ? spots.filter((s) => s.zone_id === selectedZone) : spots)
+    .filter((s) => s.status === "available");
 
   const handleBook = async () => {
     if (!selectedSpot || !startTime || !endTime || !user) return;

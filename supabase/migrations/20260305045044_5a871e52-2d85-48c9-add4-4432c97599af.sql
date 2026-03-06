@@ -119,6 +119,37 @@ DO $$ BEGIN
     END IF;
 END $$;
 
+-- Trigger to update parking spot status when booking changes
+CREATE OR REPLACE FUNCTION public.sync_spot_status_with_booking()
+RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public' AS $$
+BEGIN
+    IF (TG_OP = 'INSERT') THEN
+        IF (NEW.status = 'active') THEN
+            UPDATE public.parking_spots SET status = 'reserved' WHERE id = NEW.spot_id;
+        END IF;
+    ELSIF (TG_OP = 'UPDATE') THEN
+        IF (OLD.status = 'active' AND (NEW.status = 'completed' OR NEW.status = 'cancelled')) THEN
+            UPDATE public.parking_spots SET status = 'available' WHERE id = NEW.spot_id;
+        ELSIF (OLD.status != 'active' AND NEW.status = 'active') THEN
+            UPDATE public.parking_spots SET status = 'reserved' WHERE id = NEW.spot_id;
+        END IF;
+    ELSIF (TG_OP = 'DELETE') THEN
+        IF (OLD.status = 'active') THEN
+            UPDATE public.parking_spots SET status = 'available' WHERE id = OLD.spot_id;
+        END IF;
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'tr_sync_spot_status_on_booking') THEN
+        CREATE TRIGGER tr_sync_spot_status_on_booking 
+        AFTER INSERT OR UPDATE OR DELETE ON public.bookings 
+        FOR EACH ROW EXECUTE FUNCTION public.sync_spot_status_with_booking();
+    END IF;
+END $$;
+
 -- Enable RLS
 ALTER TABLE public.parking_zones ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.parking_spots ENABLE ROW LEVEL SECURITY;
@@ -172,5 +203,25 @@ CREATE POLICY "Admins can manage roles" ON public.user_roles FOR ALL USING (has_
 DO $$ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'parking_spots') THEN
         ALTER PUBLICATION supabase_realtime ADD TABLE public.parking_spots;
+    END IF;
+END $$;
+
+-- Seed default data: 1 Zone and 3 Spots (0 reserved, 0 filled by default)
+DO $$ 
+DECLARE 
+    zone_id_var UUID;
+BEGIN
+    -- Create a default zone if none exists
+    IF NOT EXISTS (SELECT 1 FROM public.parking_zones LIMIT 1) THEN
+        INSERT INTO public.parking_zones (name, description, location, total_spots)
+        VALUES ('Main Entrance Zone', 'Primary parking area near the main entrance', 'North Wing', 3)
+        RETURNING id INTO zone_id_var;
+
+        -- Create 3 default spots
+        INSERT INTO public.parking_spots (zone_id, spot_number, status, sensor_id)
+        VALUES 
+            (zone_id_var, 'A-101', 'available', 'SENSOR_A101'),
+            (zone_id_var, 'A-102', 'available', 'SENSOR_A102'),
+            (zone_id_var, 'A-103', 'available', 'SENSOR_A103');
     END IF;
 END $$;

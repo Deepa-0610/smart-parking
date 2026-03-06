@@ -1,0 +1,7 @@
+project_id = "tgiytjcfpkywkgvmmtfo"
+
+[functions.update-spot-status]
+verify_jwt = false
+
+[functions.get-spot-status]
+verify_jwt = false

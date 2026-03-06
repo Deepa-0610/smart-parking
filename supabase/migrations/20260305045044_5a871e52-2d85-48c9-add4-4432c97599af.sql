@@ -225,3 +225,60 @@ BEGIN
             (zone_id_var, 'A-103', 'available', 'SENSOR_A103');
     END IF;
 END $$;
+// Update this URL with your project's Edge Function URL
+// Usually: https://<project-ref>.supabase.co/functions/v1/update-spot-status
+const char* EDGE_FUNCTION_URL = "https://fbilnodzdviyhnubgmmq.supabase.co/functions/v1/update-spot-status";
+
+void syncSlotUpdate(String sensorId, String status) {
+  if (WiFi.status() != WL_CONNECTED) return;
+
+  WiFiClientSecure client;
+  client.setInsecure();
+  
+  HTTPClient http;
+  http.begin(client, EDGE_FUNCTION_URL);
+  
+  http.addHeader("apikey", ANON_KEY);
+  http.addHeader("Authorization", "Bearer " + String(ANON_KEY));
+  http.addHeader("Content-Type", "application/json");
+
+  // Payload format: {"sensor_id": "SENSOR_A101", "status": "occupied"}
+  String payload = "{\"sensor_id\":\"" + sensorId + "\",\"status\":\"" + status + "\"}";
+
+  Serial.printf("[Supabase] Updating %s to %s...\n", sensorId.c_str(), status.c_str());
+  int httpCode = http.POST(payload);
+  
+  if (httpCode >= 200 && httpCode < 300) {
+    Serial.printf("[Supabase] SUCCESS! Status: %d\n", httpCode);
+  } else {
+    Serial.printf("[Supabase] FAILED! Status: %d\n", httpCode);
+    Serial.println("[Supabase] Response: " + http.getString());
+  }
+  http.end();
+}
+
+void handleOccupancy() {
+  bool s1 = (digitalRead(PIN_IR_SLOT1) == LOW);
+  bool s2 = (digitalRead(PIN_IR_SLOT2) == LOW);
+  bool s3 = (digitalRead(PIN_IR_SLOT3) == LOW);
+  
+  // Update Slot 1 if changed
+  if (s1 != s1_occupied || forceSync) {
+    s1_occupied = s1;
+    syncSlotUpdate("SENSOR_A101", s1 ? "occupied" : "available");
+  }
+  
+  // Update Slot 2 if changed
+  if (s2 != s2_occupied || forceSync) {
+    s2_occupied = s2;
+    syncSlotUpdate("SENSOR_A102", s2 ? "occupied" : "available");
+  }
+
+  // Update Slot 3 if changed
+  if (s3 != s3_occupied || forceSync) {
+    s3_occupied = s3;
+    syncSlotUpdate("SENSOR_A103", s3 ? "occupied" : "available");
+  }
+  
+  forceSync = false;
+}
